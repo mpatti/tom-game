@@ -69,6 +69,14 @@ export class SoundManager {
       case 'go':
         this.playTone(ctx, 880, 880, 0.2, 'square', 0.15);
         break;
+      case 'shoot':
+        this.playTone(ctx, 800, 400, 0.08, 'square', 0.08);
+        this.playNoise(ctx, 0.04, 0.06);
+        break;
+      case 'hit':
+        this.playTone(ctx, 400, 100, 0.15, 'sawtooth', 0.12);
+        this.playNoise(ctx, 0.1, 0.15);
+        break;
     }
   }
 

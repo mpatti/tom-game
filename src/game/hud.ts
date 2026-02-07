@@ -1,12 +1,13 @@
-import { GameState, Player } from './types';
-import { COLORS, DASH_COOLDOWN } from './constants';
+import { GameState, Player, ChatMessage } from './types';
+import { COLORS, DASH_COOLDOWN, SHOOT_COOLDOWN } from './constants';
 
 export function drawHUD(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   localPlayer: Player | null,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
+  chatMessages?: ChatMessage[]
 ) {
   ctx.save();
 
@@ -50,6 +51,14 @@ export function drawHUD(
     ctx.textAlign = 'center';
     ctx.fillText(dashPct >= 1 ? 'DASH READY [SPACE]' : 'DASH', canvasWidth / 2, barY - 6);
 
+    // Shoot cooldown indicator (small bar below dash)
+    const shootBarY = barY + 14;
+    const shootPct = Math.max(0, 1 - localPlayer.shootCooldown / SHOOT_COOLDOWN);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(barX + 20, shootBarY, barWidth - 40, 4);
+    ctx.fillStyle = shootPct >= 1 ? '#ffff44' : '#666666';
+    ctx.fillRect(barX + 20, shootBarY, (barWidth - 40) * shootPct, 4);
+
     // Active power-ups
     let puX = canvasWidth / 2 - 60;
     const puY = canvasHeight - 70;
@@ -75,7 +84,7 @@ export function drawHUD(
     ctx.font = 'bold 32px monospace';
     ctx.fillStyle = '#ff4444';
     ctx.textAlign = 'center';
-    ctx.fillText('TAGGED!', canvasWidth / 2, canvasHeight / 2 - 20);
+    ctx.fillText('ELIMINATED!', canvasWidth / 2, canvasHeight / 2 - 20);
     ctx.font = '18px monospace';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(`Respawning in ${Math.ceil(localPlayer.respawnTimer)}...`, canvasWidth / 2, canvasHeight / 2 + 20);
@@ -95,8 +104,7 @@ export function drawHUD(
   }
   ctx.globalAlpha = 1;
 
-  // Player names + indicators on minimap area
-  // Mini player count at top left
+  // Player count at top left
   const bluePlayers = Object.values(state.players).filter(p => p.team === 'blue');
   const redPlayers = Object.values(state.players).filter(p => p.team === 'red');
   ctx.font = '12px monospace';
@@ -105,6 +113,37 @@ export function drawHUD(
   ctx.fillText(`Blue: ${bluePlayers.length}`, 15, 50);
   ctx.fillStyle = COLORS.red.primary;
   ctx.fillText(`Red: ${redPlayers.length}`, 15, 66);
+
+  // In-game chat messages - bottom left above controls hint
+  if (chatMessages && chatMessages.length > 0 && state.gamePhase === 'playing') {
+    const now = Date.now();
+    const recentMsgs = chatMessages
+      .filter(m => now - m.timestamp < 8000)
+      .slice(-5);
+
+    if (recentMsgs.length > 0) {
+      ctx.textAlign = 'left';
+      ctx.font = '12px monospace';
+      const chatY = canvasHeight - 80;
+
+      for (let i = 0; i < recentMsgs.length; i++) {
+        const msg = recentMsgs[i];
+        const age = now - msg.timestamp;
+        const alpha = age > 6000 ? Math.max(0, 1 - (age - 6000) / 2000) : 1;
+
+        ctx.globalAlpha = alpha * 0.7;
+        const text = `${msg.sender}: ${msg.text}`;
+        const textW = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(12, chatY - 14 - (recentMsgs.length - 1 - i) * 18, textW + 8, 16);
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = msg.team === 'blue' ? COLORS.blue.light : msg.team === 'red' ? COLORS.red.light : '#cccccc';
+        ctx.fillText(text, 15, chatY - 3 - (recentMsgs.length - 1 - i) * 18);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
 
   // Countdown
   if (state.gamePhase === 'countdown') {
@@ -134,7 +173,7 @@ export function drawHUD(
     ctx.font = '11px monospace';
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.textAlign = 'left';
-    ctx.fillText('WASD: Move  SPACE: Dash', 15, canvasHeight - 15);
+    ctx.fillText('WASD: Move  SPACE: Dash  CLICK: Shoot  ENTER: Chat', 15, canvasHeight - 15);
   }
 
   ctx.restore();

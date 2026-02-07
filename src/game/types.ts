@@ -25,9 +25,21 @@ export interface Player {
   shieldTimer: number;
   speedBoostActive: boolean;
   speedBoostTimer: number;
+  shootCooldown: number;
   animFrame: number;
   animTimer: number;
   flashTimer: number;
+}
+
+export interface Projectile {
+  id: string;
+  ownerId: string;
+  team: Team;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
 }
 
 export interface Flag {
@@ -73,6 +85,7 @@ export interface GameState {
   flags: { blue: Flag; red: Flag };
   score: { blue: number; red: number };
   powerUps: PowerUp[];
+  projectiles: Projectile[];
   particles: Particle[];
   events: EventMessage[];
   gamePhase: 'waiting' | 'countdown' | 'playing' | 'gameover';
@@ -95,6 +108,7 @@ export interface CompactGameState {
   f: [[number, number, string | null, number], [number, number, string | null, number]];
   s: [number, number];
   pw: [number, number, number, string][];
+  b: [number, number, number, number, number][];
   ph: 'w' | 'c' | 'p' | 'g';
   ct: number;
   w: string | null;
@@ -110,6 +124,15 @@ export interface LobbyPlayer {
   id: string;
   name: string;
   team: Team | null;
+  ready: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  sender: string;
+  text: string;
+  team: Team | null;
+  timestamp: number;
 }
 
 export interface LobbyState {

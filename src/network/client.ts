@@ -1,7 +1,7 @@
 import { PresenceChannel } from 'pusher-js';
-import { CompactGameState } from '../game/types';
+import { CompactGameState, ChatMessage } from '../game/types';
 import { GameEngine } from '../game/engine';
-import { decodeGameState, encodeInput } from './messages';
+import { decodeGameState } from './messages';
 
 export class ClientManager {
   private channel: PresenceChannel;
@@ -31,9 +31,28 @@ export class ClientManager {
         console.warn('Input send failed:', e);
       }
     };
+
+    // Send shoot events to host
+    this.engine.onShootEvent = (dx: number, dy: number) => {
+      try {
+        this.channel.trigger('client-shoot', {
+          id: this.playerId,
+          dx,
+          dy,
+        });
+      } catch (e) {
+        console.warn('Shoot send failed:', e);
+      }
+    };
+
+    // Listen for chat messages
+    this.channel.bind('client-chat', (data: ChatMessage) => {
+      this.engine.addChatMessage(data);
+    });
   }
 
   destroy() {
     this.engine.onInputChange = undefined;
+    this.engine.onShootEvent = undefined;
   }
 }

@@ -1,10 +1,9 @@
 import { PresenceChannel } from 'pusher-js';
-import { GameState } from '../game/types';
+import { ChatMessage } from '../game/types';
 import { GameEngine } from '../game/engine';
 import { encodeGameState } from './messages';
 import { NETWORK_UPDATE_RATE } from '../game/constants';
 import { InputManager } from '../game/input';
-import { decodeInput } from './messages';
 
 export class HostManager {
   private channel: PresenceChannel;
@@ -20,6 +19,19 @@ export class HostManager {
     this.channel.bind('client-input', (data: { k: number; t: number; id: string }) => {
       const input = InputManager.decode(data.k);
       this.engine.remoteInputs[data.id] = input;
+    });
+
+    // Listen for client shoot events
+    this.channel.bind('client-shoot', (data: { id: string; dx: number; dy: number }) => {
+      const player = this.engine.state.players[data.id];
+      if (player && player.state !== 'dead') {
+        this.engine.createProjectile(player, data.dx, data.dy);
+      }
+    });
+
+    // Listen for chat messages
+    this.channel.bind('client-chat', (data: ChatMessage) => {
+      this.engine.addChatMessage(data);
     });
   }
 

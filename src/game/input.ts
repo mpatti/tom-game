@@ -6,6 +6,23 @@ export class InputManager {
   public state: InputState = { up: false, down: false, left: false, right: false, dash: false };
   private prevEncoded = 0;
   public onInputChange?: (encoded: number) => void;
+  public onShoot?: () => void;
+
+  // Mouse tracking (screen coordinates)
+  public mouseScreenX = 0;
+  public mouseScreenY = 0;
+  private canvas: HTMLCanvasElement | null = null;
+  private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseDownHandler: ((e: MouseEvent) => void) | null = null;
+  private contextMenuHandler: ((e: Event) => void) | null = null;
+
+  // Chat toggle
+  public onChatToggle?: () => void;
+  private chatInputActive = false;
+
+  setChatInputActive(active: boolean) {
+    this.chatInputActive = active;
+  }
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -14,7 +31,40 @@ export class InputManager {
     }
   }
 
+  bindCanvas(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+
+    this.mouseMoveHandler = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      this.mouseScreenX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      this.mouseScreenY = (e.clientY - rect.top) * (canvas.height / rect.height);
+    };
+
+    this.mouseDownHandler = (e: MouseEvent) => {
+      if (e.button === 0) { // Left click
+        e.preventDefault();
+        this.onShoot?.();
+      }
+    };
+
+    this.contextMenuHandler = (e: Event) => e.preventDefault();
+
+    canvas.addEventListener('mousemove', this.mouseMoveHandler);
+    canvas.addEventListener('mousedown', this.mouseDownHandler);
+    canvas.addEventListener('contextmenu', this.contextMenuHandler);
+  }
+
   private handleKeyDown = (e: KeyboardEvent) => {
+    // Chat toggle on Enter
+    if (e.key === 'Enter' && !this.chatInputActive) {
+      e.preventDefault();
+      this.onChatToggle?.();
+      return;
+    }
+
+    // Don't handle game keys while chat is active
+    if (this.chatInputActive) return;
+
     // Prevent scrolling for game keys
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'w', 'a', 's', 'd'].includes(e.key)) {
       e.preventDefault();
@@ -27,6 +77,9 @@ export class InputManager {
   };
 
   private handleKeyUp = (e: KeyboardEvent) => {
+    // Don't handle game keys while chat is active
+    if (this.chatInputActive) return;
+
     this.keys.delete(e.key.toLowerCase());
     if (e.key === ' ') {
       this.dashPressed = false;
@@ -84,5 +137,11 @@ export class InputManager {
       window.removeEventListener('keydown', this.handleKeyDown);
       window.removeEventListener('keyup', this.handleKeyUp);
     }
+    if (this.canvas) {
+      if (this.mouseMoveHandler) this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
+      if (this.mouseDownHandler) this.canvas.removeEventListener('mousedown', this.mouseDownHandler);
+      if (this.contextMenuHandler) this.canvas.removeEventListener('contextmenu', this.contextMenuHandler);
+    }
+    this.canvas = null;
   }
 }

@@ -10,7 +10,15 @@ export const DASH_COOLDOWN = 3.0;
 export const FLAG_PICKUP_RADIUS = 20;
 export const FLAG_SCORE_RADIUS = 24;
 export const TAG_RADIUS = 18;
-export const FLAG_RETURN_TIME = 10;
+export const FLAG_RETURN_TIME = 30;
+export const FLAG_TOUCH_RETURN_RADIUS = 24;
+
+// Shooting
+export const BULLET_SPEED = 600;
+export const BULLET_RADIUS = 3;
+export const BULLET_LIFETIME = 1.5;
+export const SHOOT_COOLDOWN = 0.4;
+export const BULLET_SIZE = 4;
 
 export const RESPAWN_TIME = 2.0;
 

@@ -1,5 +1,5 @@
-import { GameState, Player, Flag, PowerUp, TILE_SIZE, MAP_COLS, MAP_ROWS } from './types';
-import { COLORS, PLAYER_RADIUS } from './constants';
+import { GameState, Player, Flag, PowerUp, Projectile, ChatMessage, TILE_SIZE, MAP_COLS, MAP_ROWS } from './types';
+import { COLORS, PLAYER_RADIUS, BULLET_SIZE } from './constants';
 import { MAP_DATA, getTile } from './map';
 import { Sprites } from './sprites';
 import { ParticleSystem } from './particles';
@@ -38,17 +38,14 @@ export class Renderer {
         const y = row * TILE_SIZE;
 
         if (tile === 1) {
-          // Wall
           const variant = (col * 7 + row * 13) % 4;
           const sprite = Sprites.wall(variant);
           mctx.drawImage(sprite, x, y);
         } else {
-          // Floor
           const variant = (col * 3 + row * 7) % 8;
           const sprite = Sprites.floor(variant);
           mctx.drawImage(sprite, x, y);
 
-          // Base tinting
           if (tile === 2) {
             mctx.fillStyle = COLORS.blue.base;
             mctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
@@ -67,7 +64,8 @@ export class Renderer {
     state: GameState,
     camera: Camera,
     particles: ParticleSystem,
-    localPlayerId: string
+    localPlayerId: string,
+    chatMessages?: ChatMessage[]
   ) {
     const { ctx } = this;
     ctx.imageSmoothingEnabled = false;
@@ -100,6 +98,11 @@ export class Renderer {
     if (!state.flags.blue.carrierId) this.drawFlag(state.flags.blue, cx, cy);
     if (!state.flags.red.carrierId) this.drawFlag(state.flags.red, cx, cy);
 
+    // Draw projectiles
+    for (const bullet of state.projectiles) {
+      this.drawBullet(bullet, cx, cy);
+    }
+
     // Draw players (sorted by y for depth)
     const sortedPlayers = Object.values(state.players).sort((a, b) => a.y - b.y);
     for (const player of sortedPlayers) {
@@ -117,7 +120,7 @@ export class Renderer {
 
     // HUD
     const localPlayer = state.players[localPlayerId] || null;
-    drawHUD(ctx, state, localPlayer, this.width, this.height);
+    drawHUD(ctx, state, localPlayer, this.width, this.height, chatMessages);
 
     // Minimap
     this.drawMinimap(state, localPlayerId);
@@ -168,13 +171,35 @@ export class Renderer {
     }
   }
 
+  private drawBullet(bullet: Projectile, cx: number, cy: number) {
+    const ctx = this.ctx;
+    const screenX = Math.floor(bullet.x - cx);
+    const screenY = Math.floor(bullet.y - cy);
+
+    // Glow
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = bullet.team === 'blue' ? COLORS.blue.primary : COLORS.red.primary;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, BULLET_SIZE + 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Team-colored body
+    ctx.fillStyle = bullet.team === 'blue' ? COLORS.blue.light : COLORS.red.light;
+    ctx.fillRect(screenX - BULLET_SIZE / 2, screenY - BULLET_SIZE / 2, BULLET_SIZE, BULLET_SIZE);
+
+    // White center pixel
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(screenX - 1, screenY - 1, 2, 2);
+  }
+
   private drawPlayer(player: Player, cx: number, cy: number, isLocal: boolean) {
     const ctx = this.ctx;
     const screenX = Math.floor(player.x - cx);
     const screenY = Math.floor(player.y - cy);
 
     if (player.state === 'dead') {
-      // Ghost effect
       ctx.save();
       ctx.globalAlpha = 0.3;
       const sprite = Sprites.player(player.team, 0, false, false);
@@ -183,12 +208,10 @@ export class Renderer {
       return;
     }
 
-    // Flash effect (when recently tagged, or dying)
     if (player.flashTimer > 0 && Math.floor(player.flashTimer * 10) % 2 === 0) {
-      return; // Blink
+      return;
     }
 
-    // Dash trail (afterimages)
     if (player.isDashing) {
       ctx.save();
       for (let i = 3; i >= 1; i--) {
@@ -201,11 +224,9 @@ export class Renderer {
       ctx.restore();
     }
 
-    // Main sprite
     const sprite = Sprites.player(player.team, player.animFrame, player.state === 'carrying', player.shieldActive);
     ctx.drawImage(sprite, screenX - 16, screenY - 16);
 
-    // Speed boost glow
     if (player.speedBoostActive) {
       ctx.save();
       ctx.globalAlpha = 0.2;
@@ -216,14 +237,12 @@ export class Renderer {
       ctx.restore();
     }
 
-    // Local player indicator
     if (isLocal) {
       ctx.save();
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.5;
       ctx.beginPath();
-      // Small triangle above head
       ctx.moveTo(screenX, screenY - 24);
       ctx.lineTo(screenX - 4, screenY - 30);
       ctx.lineTo(screenX + 4, screenY - 30);
@@ -284,6 +303,12 @@ export class Renderer {
     for (const flag of [state.flags.blue, state.flags.red]) {
       ctx.fillStyle = flag.team === 'blue' ? COLORS.blue.primary : COLORS.red.primary;
       ctx.fillRect(mmX + flag.x * scaleX - 2, mmY + flag.y * scaleY - 2, 4, 4);
+    }
+
+    // Bullets (tiny dots)
+    for (const bullet of state.projectiles) {
+      ctx.fillStyle = bullet.team === 'blue' ? COLORS.blue.light : COLORS.red.light;
+      ctx.fillRect(mmX + bullet.x * scaleX - 0.5, mmY + bullet.y * scaleY - 0.5, 1, 1);
     }
 
     // Players

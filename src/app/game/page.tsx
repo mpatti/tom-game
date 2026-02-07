@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { GameEngine } from '../../game/engine';
-import { LobbyPlayer } from '../../game/types';
+import { LobbyPlayer, ChatMessage } from '../../game/types';
 import { LobbyUI } from '../../lobby/LobbyUI';
 import { Matchmaker } from '../../lobby/matchmaker';
 import { HostManager } from '../../network/host';
@@ -20,11 +20,16 @@ function GameContent() {
   const hostManagerRef = useRef<HostManager | null>(null);
   const clientManagerRef = useRef<ClientManager | null>(null);
   const gameStartedRef = useRef(false);
+  const chatInputRef = useRef<HTMLInputElement>(null);
 
   const [screen, setScreen] = useState<GameScreen>('lobby');
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
   const [myId, setMyId] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [countdown, setCountdown] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [showChatInput, setShowChatInput] = useState(false);
+  const [chatText, setChatText] = useState('');
 
   const isSolo = searchParams.get('solo') === 'true';
   const roomParam = searchParams.get('room');
@@ -50,6 +55,15 @@ function GameContent() {
       },
       onError: (error) => {
         console.error('Matchmaker error:', error);
+      },
+      onCountdownUpdate: (value) => {
+        setCountdown(value);
+      },
+      onChatMessage: (msg) => {
+        setChatMessages(prev => {
+          const updated = [...prev, msg];
+          return updated.length > 50 ? updated.slice(-50) : updated;
+        });
       },
     });
 
@@ -135,6 +149,11 @@ function GameContent() {
         }
       }
 
+      // Set up in-game chat toggle
+      engine.input.onChatToggle = () => {
+        setShowChatInput(prev => !prev);
+      };
+
       // Click to resume AudioContext (browser requires user gesture)
       const handleClick = () => {
         engine.sounds.play('countdown');
@@ -148,6 +167,16 @@ function GameContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
+  // Focus chat input when it appears
+  useEffect(() => {
+    if (showChatInput && chatInputRef.current) {
+      chatInputRef.current.focus();
+      engineRef.current?.input.setChatInputActive(true);
+    } else {
+      engineRef.current?.input.setChatInputActive(false);
+    }
+  }, [showChatInput]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -157,8 +186,8 @@ function GameContent() {
     };
   }, []);
 
-  const handleStartGame = useCallback(() => {
-    matchmakerRef.current?.triggerStart();
+  const handleToggleReady = useCallback(() => {
+    matchmakerRef.current?.toggleReady();
   }, []);
 
   const handleCopyLink = useCallback(() => {
@@ -168,14 +197,50 @@ function GameContent() {
     });
   }, [roomId]);
 
+  const handleSendLobbyChat = useCallback((text: string) => {
+    matchmakerRef.current?.sendChat(text);
+  }, []);
+
+  const handleSendGameChat = useCallback(() => {
+    if (!chatText.trim()) {
+      setShowChatInput(false);
+      return;
+    }
+
+    const engine = engineRef.current;
+    const matchmaker = matchmakerRef.current;
+    if (engine) {
+      const localPlayer = engine.state.players[engine.localPlayerId];
+      const msg: ChatMessage = {
+        id: `chat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        sender: localPlayer?.name || 'Unknown',
+        text: chatText.trim().substring(0, 100),
+        team: localPlayer?.team || null,
+        timestamp: Date.now(),
+      };
+      engine.addChatMessage(msg);
+
+      // Send over network
+      if (matchmaker) {
+        matchmaker.sendChat(chatText.trim());
+      }
+    }
+
+    setChatText('');
+    setShowChatInput(false);
+  }, [chatText]);
+
   if (screen === 'lobby') {
     return (
       <LobbyUI
         players={players}
         myId={myId}
         roomId={roomId}
-        onStartGame={handleStartGame}
+        countdown={countdown}
+        messages={chatMessages}
+        onToggleReady={handleToggleReady}
         onCopyLink={handleCopyLink}
+        onSendChat={handleSendLobbyChat}
       />
     );
   }
@@ -183,6 +248,28 @@ function GameContent() {
   return (
     <div className="game-container" tabIndex={0}>
       <canvas ref={canvasRef} />
+      {showChatInput && (
+        <div className="game-chat-overlay">
+          <input
+            ref={chatInputRef}
+            className="game-chat-input"
+            placeholder="Type a message..."
+            value={chatText}
+            onChange={e => setChatText(e.target.value.substring(0, 100))}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSendGameChat();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setChatText('');
+                setShowChatInput(false);
+              }
+            }}
+            maxLength={100}
+          />
+        </div>
+      )}
     </div>
   );
 }

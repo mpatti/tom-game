@@ -1,24 +1,46 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { LobbyPlayer } from '../game/types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { LobbyPlayer, ChatMessage } from '../game/types';
 
 interface LobbyUIProps {
   players: LobbyPlayer[];
   myId: string;
   roomId: string;
-  onStartGame: () => void;
+  countdown: number;
+  messages: ChatMessage[];
+  onToggleReady: () => void;
   onCopyLink: () => void;
+  onSendChat: (text: string) => void;
 }
 
-export function LobbyUI({ players, myId, roomId, onStartGame, onCopyLink }: LobbyUIProps) {
+export function LobbyUI({ players, myId, roomId, countdown, messages, onToggleReady, onCopyLink, onSendChat }: LobbyUIProps) {
   const bluePlayers = players.filter(p => p.team === 'blue');
   const redPlayers = players.filter(p => p.team === 'red');
-  const canStart = players.length >= 2; // Allow 2+ for testing (6 for full game)
+  const me = players.find(p => p.id === myId);
+  const amReady = me?.ready || false;
+  const [chatText, setChatText] = useState('');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSendChat = useCallback(() => {
+    if (chatText.trim()) {
+      onSendChat(chatText.trim());
+      setChatText('');
+    }
+  }, [chatText, onSendChat]);
 
   return (
     <div className="lobby-container">
-      <h2 className="lobby-title">WAITING FOR PLAYERS</h2>
+      <h2 className="lobby-title">
+        {countdown > 0 ? '' : 'WAITING FOR PLAYERS'}
+      </h2>
+      {countdown > 0 && (
+        <div className="lobby-countdown">{countdown}</div>
+      )}
       <p className="lobby-room">Room: {roomId}</p>
 
       <div className="lobby-teams">
@@ -28,7 +50,12 @@ export function LobbyUI({ players, myId, roomId, onStartGame, onCopyLink }: Lobb
             <div key={i} className={`lobby-slot ${bluePlayers[i] ? 'filled' : 'empty'}`}>
               {bluePlayers[i] ? (
                 <>
-                  <span className="player-name">{bluePlayers[i].name}</span>
+                  <span className="player-name">
+                    <span className={`ready-indicator ${bluePlayers[i].ready ? 'is-ready' : ''}`}>
+                      {bluePlayers[i].ready ? '\u2713' : '\u25CB'}
+                    </span>
+                    {bluePlayers[i].name}
+                  </span>
                   {bluePlayers[i].id === myId && <span className="you-tag">YOU</span>}
                 </>
               ) : (
@@ -46,7 +73,12 @@ export function LobbyUI({ players, myId, roomId, onStartGame, onCopyLink }: Lobb
             <div key={i} className={`lobby-slot ${redPlayers[i] ? 'filled' : 'empty'}`}>
               {redPlayers[i] ? (
                 <>
-                  <span className="player-name">{redPlayers[i].name}</span>
+                  <span className="player-name">
+                    <span className={`ready-indicator ${redPlayers[i].ready ? 'is-ready' : ''}`}>
+                      {redPlayers[i].ready ? '\u2713' : '\u25CB'}
+                    </span>
+                    {redPlayers[i].name}
+                  </span>
                   {redPlayers[i].id === myId && <span className="you-tag">YOU</span>}
                 </>
               ) : (
@@ -61,18 +93,51 @@ export function LobbyUI({ players, myId, roomId, onStartGame, onCopyLink }: Lobb
         <button className="lobby-btn share" onClick={onCopyLink}>
           Copy Invite Link
         </button>
-        {canStart && (
-          <button className="lobby-btn start" onClick={onStartGame}>
-            Start Game {players.length < 6 ? `(${players.length}/6)` : ''}
-          </button>
-        )}
+        <button
+          className={`lobby-btn ${amReady ? 'ready' : 'not-ready'}`}
+          onClick={onToggleReady}
+        >
+          {amReady ? 'READY \u2713' : 'READY UP'}
+        </button>
       </div>
 
       <p className="lobby-hint">
-        {players.length < 6
-          ? `Share the link to invite players (${players.length}/6)`
-          : 'Full lobby! Starting soon...'}
+        {countdown > 0
+          ? 'Game starting...'
+          : players.length < 2
+            ? 'Share the link to invite players'
+            : players.every(p => p.ready)
+              ? 'All players ready!'
+              : 'Click READY UP when you\'re set'}
       </p>
+
+      {/* Chat Panel */}
+      <div className="chat-panel">
+        <div className="chat-messages">
+          {messages.map(msg => (
+            <div
+              key={msg.id}
+              className={`chat-msg ${msg.team || 'system'}`}
+            >
+              <span className="chat-sender">{msg.sender}:</span> {msg.text}
+            </div>
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+        <div className="chat-input-row">
+          <input
+            className="chat-input"
+            placeholder="Type a message..."
+            value={chatText}
+            onChange={e => setChatText(e.target.value.substring(0, 100))}
+            onKeyDown={e => e.key === 'Enter' && handleSendChat()}
+            maxLength={100}
+          />
+          <button className="chat-send-btn" onClick={handleSendChat}>
+            Send
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

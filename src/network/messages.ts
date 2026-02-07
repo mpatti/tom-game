@@ -1,4 +1,4 @@
-import { GameState, CompactGameState, CompactInput, InputState, Player, Team } from '../game/types';
+import { GameState, CompactGameState, CompactInput, InputState, Player, Team, Projectile } from '../game/types';
 
 // Encode game state to compact format for network transmission
 export function encodeGameState(state: GameState): CompactGameState {
@@ -17,6 +17,15 @@ export function encodeGameState(state: GameState): CompactGameState {
     ];
   }
 
+  // Encode projectiles: [x, y, vx, vy, teamBit]
+  const bullets: [number, number, number, number, number][] = state.projectiles.map(b => [
+    Math.round(b.x),
+    Math.round(b.y),
+    Math.round(b.vx),
+    Math.round(b.vy),
+    b.team === 'blue' ? 0 : 1,
+  ]);
+
   return {
     p: players,
     f: [
@@ -30,6 +39,7 @@ export function encodeGameState(state: GameState): CompactGameState {
       Math.round(p.y),
       p.id,
     ]),
+    b: bullets,
     ph: state.gamePhase === 'waiting' ? 'w' : state.gamePhase === 'countdown' ? 'c' : state.gamePhase === 'playing' ? 'p' : 'g',
     ct: Math.round(state.countdownTimer * 10),
     w: state.winner,
@@ -61,11 +71,24 @@ export function decodeGameState(compact: CompactGameState, existing: GameState):
       shieldTimer: existingPlayer?.shieldTimer || 0,
       speedBoostActive: data[7] === 1,
       speedBoostTimer: existingPlayer?.speedBoostTimer || 0,
+      shootCooldown: existingPlayer?.shootCooldown || 0,
       animFrame: data[8],
       animTimer: existingPlayer?.animTimer || 0,
       flashTimer: existingPlayer?.flashTimer || 0,
     };
   }
+
+  // Decode projectiles
+  const projectiles: Projectile[] = (compact.b || []).map((b, i) => ({
+    id: `net-${i}`,
+    ownerId: '',
+    team: (b[4] === 0 ? 'blue' : 'red') as Team,
+    x: b[0],
+    y: b[1],
+    vx: b[2],
+    vy: b[3],
+    life: 1.0, // Remote bullets get a fresh lifetime
+  }));
 
   const typeMap = ['speed', 'shield', 'dash_reset'] as const;
 
@@ -97,6 +120,7 @@ export function decodeGameState(compact: CompactGameState, existing: GameState):
       animTimer: 0,
       active: true,
     })),
+    projectiles,
     gamePhase: compact.ph === 'w' ? 'waiting' : compact.ph === 'c' ? 'countdown' : compact.ph === 'p' ? 'playing' : 'gameover',
     countdownTimer: compact.ct / 10,
     winner: compact.w as Team | null,
