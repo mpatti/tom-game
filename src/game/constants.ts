@@ -42,6 +42,26 @@ export const TILE_SIZE = 32;
 export const MAP_COLS = 40;
 export const MAP_ROWS = 25;
 
+// 3D constants
+export const WALL_HEIGHT = 3;
+export const PLAYER_EYE_HEIGHT = 1.5;
+export const PLAYER_BODY_RADIUS = 0.375; // PLAYER_RADIUS / TILE_SIZE
+export const BULLET_BODY_RADIUS = 0.1;
+export const FOV = 80;
+export const MOUSE_SENSITIVITY = 0.002;
+
+// World-unit conversions (1 tile = 1 world unit)
+export const PLAYER_SPEED_3D = PLAYER_SPEED / TILE_SIZE;     // 6.25 units/s
+export const PLAYER_ACCEL_3D = PLAYER_ACCEL / TILE_SIZE;     // 50 units/s²
+export const PLAYER_DECEL_3D = PLAYER_DECEL / TILE_SIZE;     // 37.5 units/s²
+export const DASH_SPEED_3D = DASH_SPEED / TILE_SIZE;         // 15.625 units/s
+export const BULLET_SPEED_3D = BULLET_SPEED / TILE_SIZE;     // 18.75 units/s
+export const PLAYER_RADIUS_3D = PLAYER_RADIUS / TILE_SIZE;   // 0.375
+export const FLAG_PICKUP_RADIUS_3D = FLAG_PICKUP_RADIUS / TILE_SIZE;     // 0.625
+export const FLAG_SCORE_RADIUS_3D = FLAG_SCORE_RADIUS / TILE_SIZE;       // 0.75
+export const FLAG_TOUCH_RETURN_RADIUS_3D = FLAG_TOUCH_RETURN_RADIUS / TILE_SIZE; // 0.75
+export const TAG_RADIUS_3D = TAG_RADIUS / TILE_SIZE;         // 0.5625
+
 export const COLORS = {
   blue: {
     primary: '#4488ff',

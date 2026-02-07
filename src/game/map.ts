@@ -65,6 +65,7 @@ export function getTile(col: number, row: number): number {
   return MAP_DATA[row][col];
 }
 
+// Legacy 2D pixel functions
 export function worldToTile(x: number, y: number): { col: number; row: number } {
   return {
     col: Math.floor(x / TILE_SIZE),
@@ -79,11 +80,10 @@ export function tileToWorld(col: number, row: number): { x: number; y: number } 
   };
 }
 
-// Flag positions (center of base areas)
+// Legacy 2D pixel positions
 export const BLUE_FLAG_POS = { x: 6 * TILE_SIZE + TILE_SIZE / 2, y: 12 * TILE_SIZE + TILE_SIZE / 2 };
 export const RED_FLAG_POS = { x: 33 * TILE_SIZE + TILE_SIZE / 2, y: 12 * TILE_SIZE + TILE_SIZE / 2 };
 
-// Spawn positions for each team
 export const BLUE_SPAWNS = [
   { x: 4 * TILE_SIZE + TILE_SIZE / 2, y: 10 * TILE_SIZE + TILE_SIZE / 2 },
   { x: 4 * TILE_SIZE + TILE_SIZE / 2, y: 12 * TILE_SIZE + TILE_SIZE / 2 },
@@ -95,7 +95,6 @@ export const RED_SPAWNS = [
   { x: 35 * TILE_SIZE + TILE_SIZE / 2, y: 14 * TILE_SIZE + TILE_SIZE / 2 },
 ];
 
-// Power-up spawn locations (neutral areas of map)
 export const POWERUP_LOCATIONS = [
   { x: 20 * TILE_SIZE + TILE_SIZE / 2, y: 5 * TILE_SIZE + TILE_SIZE / 2 },
   { x: 20 * TILE_SIZE + TILE_SIZE / 2, y: 19 * TILE_SIZE + TILE_SIZE / 2 },
@@ -104,11 +103,86 @@ export const POWERUP_LOCATIONS = [
   { x: 20 * TILE_SIZE + TILE_SIZE / 2, y: 12 * TILE_SIZE + TILE_SIZE / 2 },
 ];
 
+// 3D world-unit positions (1 tile = 1 unit)
+export const BLUE_FLAG_POS_3D = { x: 6.5, z: 12.5 };
+export const RED_FLAG_POS_3D = { x: 33.5, z: 12.5 };
+
+export const BLUE_SPAWNS_3D = [
+  { x: 4.5, z: 10.5 },
+  { x: 4.5, z: 12.5 },
+  { x: 4.5, z: 14.5 },
+];
+export const RED_SPAWNS_3D = [
+  { x: 35.5, z: 10.5 },
+  { x: 35.5, z: 12.5 },
+  { x: 35.5, z: 14.5 },
+];
+
+export const POWERUP_LOCATIONS_3D = [
+  { x: 20.5, z: 5.5 },
+  { x: 20.5, z: 19.5 },
+  { x: 13.5, z: 12.5 },
+  { x: 27.5, z: 12.5 },
+  { x: 20.5, z: 12.5 },
+];
+
+// 3D collision: checks wall in world-unit coordinates
+export function isWall3D(x: number, z: number): boolean {
+  return isWall(Math.floor(x), Math.floor(z));
+}
+
+// 3D wall collision: same algorithm as 2D but in world units (1 tile = 1 unit)
+export function collideWithWalls3D(x: number, z: number, radius: number): { x: number; z: number } {
+  let newX = x;
+  let newZ = z;
+
+  const minCol = Math.floor(newX - radius);
+  const maxCol = Math.floor(newX + radius);
+  const minRow = Math.floor(newZ - radius);
+  const maxRow = Math.floor(newZ + radius);
+
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let col = minCol; col <= maxCol; col++) {
+      if (!isWall(col, row)) continue;
+
+      const tileLeft = col;
+      const tileRight = col + 1;
+      const tileTop = row;
+      const tileBottom = row + 1;
+
+      const closestX = Math.max(tileLeft, Math.min(newX, tileRight));
+      const closestZ = Math.max(tileTop, Math.min(newZ, tileBottom));
+
+      const dx = newX - closestX;
+      const dz = newZ - closestZ;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist < radius && dist > 0) {
+        const overlap = radius - dist;
+        newX += (dx / dist) * overlap;
+        newZ += (dz / dist) * overlap;
+      } else if (dist === 0) {
+        const centerX = col + 0.5;
+        const centerZ = row + 0.5;
+        const pushDx = newX - centerX;
+        const pushDz = newZ - centerZ;
+        const pushDist = Math.sqrt(pushDx * pushDx + pushDz * pushDz);
+        if (pushDist > 0) {
+          newX = centerX + (pushDx / pushDist) * (0.5 + radius);
+          newZ = centerZ + (pushDz / pushDist) * (0.5 + radius);
+        }
+      }
+    }
+  }
+
+  return { x: newX, z: newZ };
+}
+
+// Legacy 2D collision (kept for backward compat)
 export function collideWithWalls(x: number, y: number, radius: number): { x: number; y: number } {
   let newX = x;
   let newY = y;
 
-  // Check surrounding tiles
   const minCol = Math.floor((x - radius) / TILE_SIZE);
   const maxCol = Math.floor((x + radius) / TILE_SIZE);
   const minRow = Math.floor((y - radius) / TILE_SIZE);
@@ -123,7 +197,6 @@ export function collideWithWalls(x: number, y: number, radius: number): { x: num
       const tileTop = row * TILE_SIZE;
       const tileBottom = tileTop + TILE_SIZE;
 
-      // Find closest point on tile to player
       const closestX = Math.max(tileLeft, Math.min(newX, tileRight));
       const closestY = Math.max(tileTop, Math.min(newY, tileBottom));
 
@@ -136,7 +209,6 @@ export function collideWithWalls(x: number, y: number, radius: number): { x: num
         newX += (dx / dist) * overlap;
         newY += (dy / dist) * overlap;
       } else if (dist === 0) {
-        // Player center is inside tile, push out
         const centerX = tileLeft + TILE_SIZE / 2;
         const centerY = tileTop + TILE_SIZE / 2;
         const pushDx = newX - centerX;

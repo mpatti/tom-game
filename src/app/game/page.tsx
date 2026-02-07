@@ -3,24 +3,28 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { GameEngine } from '../../game/engine';
-import { LobbyPlayer, ChatMessage } from '../../game/types';
+import { LobbyPlayer, ChatMessage, GameState } from '../../game/types';
 import { LobbyUI } from '../../lobby/LobbyUI';
 import { Matchmaker } from '../../lobby/matchmaker';
 import { HostManager } from '../../network/host';
 import { ClientManager } from '../../network/client';
-import { PLAYER_NAMES } from '../../game/constants';
+import { PLAYER_NAMES, MAP_COLS, MAP_ROWS } from '../../game/constants';
+import { GameHUD } from '../../game/GameHUD';
+import { MAP_DATA } from '../../game/map';
 
 type GameScreen = 'lobby' | 'playing';
 
 function GameContent() {
   const searchParams = useSearchParams();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const matchmakerRef = useRef<Matchmaker | null>(null);
   const hostManagerRef = useRef<HostManager | null>(null);
   const clientManagerRef = useRef<ClientManager | null>(null);
   const gameStartedRef = useRef(false);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  const hudPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [screen, setScreen] = useState<GameScreen>('lobby');
   const [players, setPlayers] = useState<LobbyPlayer[]>([]);
@@ -30,6 +34,12 @@ function GameContent() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [showChatInput, setShowChatInput] = useState(false);
   const [chatText, setChatText] = useState('');
+  const [pointerLocked, setPointerLocked] = useState(false);
+
+  // HUD state polled from engine
+  const [hudState, setHudState] = useState<GameState | null>(null);
+  const [hudChatMessages, setHudChatMessages] = useState<ChatMessage[]>([]);
+  const [localPlayerId, setLocalPlayerId] = useState('');
 
   const isSolo = searchParams.get('solo') === 'true';
   const roomParam = searchParams.get('room');
@@ -75,21 +85,27 @@ function GameContent() {
       matchmaker.leave();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  }, []);
 
   // Game initialization - runs when screen changes to 'playing'
   useEffect(() => {
     if (screen !== 'playing' || gameStartedRef.current) return;
 
-    // Wait for next frame to ensure canvas is mounted
     const timer = requestAnimationFrame(() => {
-      if (!canvasRef.current) return;
+      if (!containerRef.current) return;
       gameStartedRef.current = true;
 
-      const canvas = canvasRef.current;
+      const container = containerRef.current;
       const playerId = myId || `local-${Math.random().toString(36).substring(2, 9)}`;
-      const engine = new GameEngine(canvas, playerId);
+      setLocalPlayerId(playerId);
+
+      const engine = new GameEngine(container, playerId);
       engineRef.current = engine;
+
+      // Pointer lock callback
+      engine.input.onPointerLockChange = (locked: boolean) => {
+        setPointerLocked(locked);
+      };
 
       if (isSolo || !process.env.NEXT_PUBLIC_PUSHER_KEY) {
         // Solo mode with bots
@@ -102,14 +118,12 @@ function GameContent() {
         // Online mode
         const channel = matchmakerRef.current?.getChannel();
         if (channel) {
-          // Add all lobby players to the game
           players.forEach((p, i) => {
             const team = p.team || (i % 2 === 0 ? 'blue' : 'red');
             const teamIndex = players.filter((pp, j) => j < i && (pp.team || (j % 2 === 0 ? 'blue' : 'red')) === team).length;
             engine.addPlayer(p.id, p.name, team, teamIndex);
           });
 
-          // Determine if we're the host (alphabetically first member)
           const sortedIds = players.map(p => p.id).sort();
           const isHost = sortedIds[0] === playerId;
 
@@ -123,11 +137,9 @@ function GameContent() {
             clientManagerRef.current = clientManager;
           }
 
-          // Handle player disconnect
           channel.bind('pusher:member_removed', (member: { id: string }) => {
             engine.removePlayer(member.id);
 
-            // Check if we need to become host
             const remainingIds = Object.keys(engine.state.players).sort();
             if (remainingIds[0] === playerId && !hostManagerRef.current) {
               clientManagerRef.current?.destroy();
@@ -154,11 +166,13 @@ function GameContent() {
         setShowChatInput(prev => !prev);
       };
 
-      // Click to resume AudioContext (browser requires user gesture)
-      const handleClick = () => {
-        engine.sounds.play('countdown');
-      };
-      canvas.addEventListener('click', handleClick, { once: true });
+      // HUD polling at ~30fps
+      hudPollRef.current = setInterval(() => {
+        if (engineRef.current) {
+          setHudState({ ...engineRef.current.getState() });
+          setHudChatMessages([...engineRef.current.getChatMessages()]);
+        }
+      }, 33);
     });
 
     return () => {
@@ -177,9 +191,76 @@ function GameContent() {
     }
   }, [showChatInput]);
 
+  // Minimap drawing
+  useEffect(() => {
+    if (!hudState || !minimapRef.current) return;
+    const canvas = minimapRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    const scaleX = w / MAP_COLS;
+    const scaleY = h / MAP_ROWS;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Background
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Walls
+    ctx.fillStyle = '#444466';
+    for (let row = 0; row < MAP_ROWS; row++) {
+      for (let col = 0; col < MAP_COLS; col++) {
+        if (MAP_DATA[row]?.[col] === 1) {
+          ctx.fillRect(col * scaleX, row * scaleY, scaleX, scaleY);
+        }
+      }
+    }
+
+    // Flags
+    const blueFlag = hudState.flags.blue;
+    const redFlag = hudState.flags.red;
+    ctx.fillStyle = '#4488ff';
+    ctx.fillRect(blueFlag.x * scaleX - 2, blueFlag.z * scaleY - 2, 4, 4);
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(redFlag.x * scaleX - 2, redFlag.z * scaleY - 2, 4, 4);
+
+    // Players
+    for (const player of Object.values(hudState.players)) {
+      if (player.state === 'dead') continue;
+      ctx.fillStyle = player.team === 'blue' ? '#4488ff' : '#ff4444';
+      if (player.id === localPlayerId) {
+        // Local player: slightly larger, white outline
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(player.x * scaleX, player.z * scaleY, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Direction indicator
+        const dirLen = 6;
+        const dirX = -Math.sin(player.yaw) * dirLen;
+        const dirZ = -Math.cos(player.yaw) * dirLen;
+        ctx.beginPath();
+        ctx.moveTo(player.x * scaleX, player.z * scaleY);
+        ctx.lineTo(player.x * scaleX + dirX, player.z * scaleY + dirZ);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(player.x * scaleX, player.z * scaleY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }, [hudState, localPlayerId]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (hudPollRef.current) clearInterval(hudPollRef.current);
       engineRef.current?.stop();
       hostManagerRef.current?.destroy();
       clientManagerRef.current?.destroy();
@@ -210,17 +291,16 @@ function GameContent() {
     const engine = engineRef.current;
     const matchmaker = matchmakerRef.current;
     if (engine) {
-      const localPlayer = engine.state.players[engine.localPlayerId];
+      const localP = engine.state.players[engine.localPlayerId];
       const msg: ChatMessage = {
         id: `chat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        sender: localPlayer?.name || 'Unknown',
+        sender: localP?.name || 'Unknown',
         text: chatText.trim().substring(0, 100),
-        team: localPlayer?.team || null,
+        team: localP?.team || null,
         timestamp: Date.now(),
       };
       engine.addChatMessage(msg);
 
-      // Send over network
       if (matchmaker) {
         matchmaker.sendChat(chatText.trim());
       }
@@ -247,7 +327,27 @@ function GameContent() {
 
   return (
     <div className="game-container" tabIndex={0}>
-      <canvas ref={canvasRef} />
+      <div ref={containerRef} className="game-canvas-container" />
+
+      {/* HUD overlay */}
+      {hudState && (
+        <GameHUD
+          state={hudState}
+          localPlayerId={localPlayerId}
+          chatMessages={hudChatMessages}
+          pointerLocked={pointerLocked}
+        />
+      )}
+
+      {/* Minimap */}
+      <canvas
+        ref={minimapRef}
+        className="hud-minimap"
+        width={160}
+        height={100}
+      />
+
+      {/* Chat input overlay */}
       {showChatInput && (
         <div className="game-chat-overlay">
           <input

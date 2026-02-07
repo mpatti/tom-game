@@ -16,16 +16,23 @@ export class HostManager {
     this.engine.isHost = true;
 
     // Listen for client inputs
-    this.channel.bind('client-input', (data: { k: number; t: number; id: string }) => {
+    this.channel.bind('client-input', (data: { k: number; yaw: number; pitch: number; t: number; id: string }) => {
       const input = InputManager.decode(data.k);
       this.engine.remoteInputs[data.id] = input;
+
+      // Apply yaw/pitch to the remote player
+      const player = this.engine.state.players[data.id];
+      if (player) {
+        player.yaw = data.yaw;
+        player.pitch = data.pitch;
+      }
     });
 
-    // Listen for client shoot events
-    this.channel.bind('client-shoot', (data: { id: string; dx: number; dy: number }) => {
+    // Listen for client shoot events (3D direction)
+    this.channel.bind('client-shoot', (data: { id: string; dx: number; dy: number; dz: number }) => {
       const player = this.engine.state.players[data.id];
       if (player && player.state !== 'dead') {
-        this.engine.createProjectile(player, data.dx, data.dy);
+        this.engine.createProjectile(player, data.dx, data.dy, data.dz);
       }
     });
 

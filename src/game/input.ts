@@ -3,25 +3,32 @@ import { InputState } from './types';
 export class InputManager {
   private keys: Set<string> = new Set();
   private dashPressed = false;
-  public state: InputState = { up: false, down: false, left: false, right: false, dash: false };
+  public state: InputState = { up: false, down: false, left: false, right: false, dash: false, shoot: false };
   private prevEncoded = 0;
   public onInputChange?: (encoded: number) => void;
-  public onShoot?: () => void;
 
-  // Mouse tracking (screen coordinates)
-  public mouseScreenX = 0;
-  public mouseScreenY = 0;
+  // Pointer lock mouse deltas
+  private mouseDeltaX = 0;
+  private mouseDeltaY = 0;
+  private _mouseHeld = false;
+  private _pointerLocked = false;
   private canvas: HTMLCanvasElement | null = null;
   private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
   private mouseDownHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseUpHandler: ((e: MouseEvent) => void) | null = null;
   private contextMenuHandler: ((e: Event) => void) | null = null;
+  private pointerLockChangeHandler: (() => void) | null = null;
 
-  // Chat toggle
+  // Callbacks
+  public onPointerLockChange?: (locked: boolean) => void;
   public onChatToggle?: () => void;
   private chatInputActive = false;
 
   setChatInputActive(active: boolean) {
     this.chatInputActive = active;
+    if (active) {
+      this._mouseHeld = false;
+    }
   }
 
   constructor() {
@@ -35,23 +42,64 @@ export class InputManager {
     this.canvas = canvas;
 
     this.mouseMoveHandler = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      this.mouseScreenX = (e.clientX - rect.left) * (canvas.width / rect.width);
-      this.mouseScreenY = (e.clientY - rect.top) * (canvas.height / rect.height);
+      if (this._pointerLocked) {
+        this.mouseDeltaX += e.movementX;
+        this.mouseDeltaY += e.movementY;
+      }
     };
 
     this.mouseDownHandler = (e: MouseEvent) => {
-      if (e.button === 0) { // Left click
+      if (e.button === 0) {
         e.preventDefault();
-        this.onShoot?.();
+        if (!this._pointerLocked) {
+          // Request pointer lock on first click
+          canvas.requestPointerLock();
+        } else {
+          this._mouseHeld = true;
+        }
+      }
+    };
+
+    this.mouseUpHandler = (e: MouseEvent) => {
+      if (e.button === 0) {
+        this._mouseHeld = false;
       }
     };
 
     this.contextMenuHandler = (e: Event) => e.preventDefault();
 
+    this.pointerLockChangeHandler = () => {
+      this._pointerLocked = document.pointerLockElement === canvas;
+      if (!this._pointerLocked) {
+        this._mouseHeld = false;
+      }
+      this.onPointerLockChange?.(this._pointerLocked);
+    };
+
     canvas.addEventListener('mousemove', this.mouseMoveHandler);
     canvas.addEventListener('mousedown', this.mouseDownHandler);
+    window.addEventListener('mouseup', this.mouseUpHandler);
     canvas.addEventListener('contextmenu', this.contextMenuHandler);
+    document.addEventListener('pointerlockchange', this.pointerLockChangeHandler);
+  }
+
+  /** Consume accumulated mouse movement deltas (resets to 0) */
+  consumeMouseDelta(): { dx: number; dy: number } {
+    const dx = this.mouseDeltaX;
+    const dy = this.mouseDeltaY;
+    this.mouseDeltaX = 0;
+    this.mouseDeltaY = 0;
+    return { dx, dy };
+  }
+
+  /** Whether left mouse button is currently held (while pointer locked) */
+  isMouseHeld(): boolean {
+    return this._mouseHeld && this._pointerLocked;
+  }
+
+  /** Whether pointer is currently locked */
+  isPointerLocked(): boolean {
+    return this._pointerLocked;
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
@@ -77,7 +125,6 @@ export class InputManager {
   };
 
   private handleKeyUp = (e: KeyboardEvent) => {
-    // Don't handle game keys while chat is active
     if (this.chatInputActive) return;
 
     this.keys.delete(e.key.toLowerCase());
@@ -94,6 +141,7 @@ export class InputManager {
       left: this.keys.has('a') || this.keys.has('arrowleft'),
       right: this.keys.has('d') || this.keys.has('arrowright'),
       dash: this.dashPressed,
+      shoot: this._mouseHeld,
     };
 
     this.state = newState;
@@ -129,6 +177,7 @@ export class InputManager {
       left: (v & 4) !== 0,
       right: (v & 8) !== 0,
       dash: (v & 16) !== 0,
+      shoot: false,
     };
   }
 
@@ -137,10 +186,20 @@ export class InputManager {
       window.removeEventListener('keydown', this.handleKeyDown);
       window.removeEventListener('keyup', this.handleKeyUp);
     }
+    if (this.mouseUpHandler) {
+      window.removeEventListener('mouseup', this.mouseUpHandler);
+    }
     if (this.canvas) {
       if (this.mouseMoveHandler) this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
       if (this.mouseDownHandler) this.canvas.removeEventListener('mousedown', this.mouseDownHandler);
       if (this.contextMenuHandler) this.canvas.removeEventListener('contextmenu', this.contextMenuHandler);
+    }
+    if (this.pointerLockChangeHandler) {
+      document.removeEventListener('pointerlockchange', this.pointerLockChangeHandler);
+    }
+    // Exit pointer lock
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
     }
     this.canvas = null;
   }

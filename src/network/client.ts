@@ -19,11 +19,14 @@ export class ClientManager {
       this.engine.applyRemoteState(decoded);
     });
 
-    // Send inputs to host when they change
+    // Send inputs to host when they change (include yaw/pitch)
     this.engine.onInputChange = (encoded: number) => {
       try {
+        const localPlayer = this.engine.state.players[this.playerId];
         this.channel.trigger('client-input', {
           k: encoded,
+          yaw: localPlayer?.yaw || 0,
+          pitch: localPlayer?.pitch || 0,
           t: Date.now(),
           id: this.playerId,
         });
@@ -32,13 +35,14 @@ export class ClientManager {
       }
     };
 
-    // Send shoot events to host
-    this.engine.onShootEvent = (dx: number, dy: number) => {
+    // Send shoot events to host (3D direction)
+    this.engine.onShootEvent = (dx: number, dy: number, dz: number) => {
       try {
         this.channel.trigger('client-shoot', {
           id: this.playerId,
           dx,
           dy,
+          dz,
         });
       } catch (e) {
         console.warn('Shoot send failed:', e);
